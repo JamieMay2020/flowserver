@@ -5,6 +5,8 @@ import { TransferEngine } from "./solana/transferLoop.js";
 import sqlite3 from "sqlite3";
 import nacl from "tweetnacl";
 import { PublicKey } from "@solana/web3.js";
+import fs from "fs";
+import path from "path";
 
 dotenv.config();
 
@@ -59,8 +61,23 @@ app.get("/status", (_req, res) => {
 // ------------------------------
 // 🔹 SQLite setup for video catalog
 // ------------------------------
+// Ensure data directory exists
+const dbDir = process.env.DB_PATH ? path.dirname(process.env.DB_PATH) : "/data";
 const dbPath = process.env.DB_PATH || "/data/videos.sqlite";
-const db = new sqlite3.Database(dbPath);
+
+try {
+  if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
+  }
+} catch (e) {
+  console.warn(`Could not create ${dbDir}, falling back to local storage`);
+}
+
+// Fallback to local path if persistent disk fails
+const finalDbPath = fs.existsSync(dbDir) ? dbPath : "./videos.sqlite";
+console.log(`Using database: ${finalDbPath}`);
+
+const db = new sqlite3.Database(finalDbPath);
 
 db.serialize(() => {
   db.run(
