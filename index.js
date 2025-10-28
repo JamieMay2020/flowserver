@@ -90,7 +90,8 @@ db.serialize(() => {
       thumbnailUrl TEXT NOT NULL,
       lamportsPerSecond INTEGER NOT NULL,
       createdAt INTEGER NOT NULL,
-      status TEXT NOT NULL
+      status TEXT NOT NULL,
+      contentType TEXT DEFAULT 'video'
     )`
   );
   db.run(`CREATE INDEX IF NOT EXISTS idx_videos_owner ON videos(ownerPublicKey)`);
@@ -105,7 +106,9 @@ const ALLOWED_VIDEO_HOSTS = [
   "youtube.com",
   "vimeo.com",
   "ipfs.io",
-  "cloudflarestream.com"
+  "cloudflarestream.com",
+  "twitch.tv",
+  "player.twitch.tv"
 ];
 
 function isAllowedHost(urlStr) {
@@ -155,7 +158,7 @@ async function getLastCreatedAt(ownerPublicKey) {
 // 🔹 Video submission (requires CAPTCHA)
 // ------------------------------
 app.post("/videos", async (req, res) => {
-  const { ownerPublicKey, title, description, videoUrl, thumbnailUrl, lamportsPerSecond } = req.body || {};
+  const { ownerPublicKey, title, description, videoUrl, thumbnailUrl, lamportsPerSecond, contentType } = req.body || {};
 
   if (!ownerPublicKey || !title || !videoUrl || !thumbnailUrl || typeof lamportsPerSecond === "undefined") {
     return res.status(400).json({ error: "Missing required fields" });
@@ -168,6 +171,9 @@ app.post("/videos", async (req, res) => {
   const rate = Number(lamportsPerSecond);
   if (!Number.isFinite(rate) || rate <= 0) return res.status(400).json({ error: "Invalid lamportsPerSecond" });
 
+  const type = contentType || 'video';
+  if (!['video', 'live'].includes(type)) return res.status(400).json({ error: "Invalid contentType" });
+
   try {
     // Limits
     const pending = await getPendingCount(ownerPublicKey);
@@ -177,9 +183,9 @@ app.post("/videos", async (req, res) => {
 
     const now = Date.now();
     db.run(
-      `INSERT INTO videos (ownerPublicKey, title, description, videoUrl, thumbnailUrl, lamportsPerSecond, createdAt, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
-      [ownerPublicKey, String(title).slice(0, 200), String(description || '').slice(0, 2000), videoUrl, thumbnailUrl, rate, now],
+      `INSERT INTO videos (ownerPublicKey, title, description, videoUrl, thumbnailUrl, lamportsPerSecond, createdAt, status, contentType)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      [ownerPublicKey, String(title).slice(0, 200), String(description || '').slice(0, 2000), videoUrl, thumbnailUrl, rate, now, type],
       function(err) {
         if (err) return res.status(500).json({ error: "DB error" });
         return res.json({ ok: true, id: this.lastID });
