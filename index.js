@@ -194,31 +194,43 @@ app.post("/videos/:id/reject", (req, res) => {
 // ------------------------------
 app.get("/admin", (_req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(String.raw`
-<!doctype html>
+  res.send(String.raw`<!doctype html>
 <html>
 <head>
-<meta charset="utf-8" />
-<title>Admin</title>
-<style>
-body { font-family: sans-serif; max-width: 800px; margin: 24px auto; }
-.card { border:1px solid #ccc; padding:12px; border-radius:6px; margin-bottom:12px; }
-img.thumb { width:140px; height:80px; object-fit:cover; border-radius:4px; }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin - Pending Videos</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; max-width: 800px; }
+    input, button { padding: 8px; margin: 4px 0; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin: 10px 0; }
+    img.thumb { width: 140px; height: 80px; object-fit: cover; border-radius: 6px; border:1px solid #ccc; display:block; }
+    .meta { font-size: 12px; color: #555; margin-top:4px; }
+  </style>
+</head>
+<body>
+  <h1>Pending Videos</h1>
+  <div>
+    <label>Admin Key:</label>
+    <input id="k" type="password" placeholder="enter admin key" />
+    <button onclick="saveKey()">Save</button>
+  </div>
+  <div id="list"></div>
+
 <script>
 function getKey(){ return localStorage.getItem("adminKey") || ""; }
-function setKey(k){ localStorage.setItem("adminKey", k); }
+function setKey(v){ localStorage.setItem("adminKey", v); }
 
-async function act(id, action){
+window.saveKey = function(){ setKey(document.getElementById("k").value); load(); };
+
+window.act = async function(id, action){
   const key = getKey();
-  await fetch("/videos/" + id + "/" + action, { method:"POST", headers: { "x-admin-key": key } });
+  await fetch("/videos/" + id + "/" + action, {
+    method:"POST",
+    headers:{ "x-admin-key": key }
+  });
   load();
-}
-
-function saveKey(){
-  setKey(document.getElementById("k").value);
-  load();
-}
+};
 
 async function load(){
   const key = getKey();
@@ -228,29 +240,28 @@ async function load(){
   const list = document.getElementById("list");
   list.innerHTML = "";
   (data||[]).forEach(v=>{
-    list.innerHTML += `
-    <div class="card">
-      <img class="thumb" src="${v.thumbnailUrl}">
-      <strong>${v.title}</strong><br>
-      <small>${v.ownerPublicKey}</small><br>
-      <a href="${v.videoUrl}" target="_blank">View Video</a><br><br>
-      <button onclick="act(${v.id}, 'approve')">Approve</button>
-      <button onclick="act(${v.id}, 'reject')">Reject</button>
-    </div>`;
+    list.innerHTML += String.raw`
+      <div class="card">
+        <img class="thumb" src="${v.thumbnailUrl}">
+        <div><strong>${v.title}</strong></div>
+        <div class="meta">Owner: ${v.ownerPublicKey}</div>
+        <div class="meta">Rate: ${v.lamportsPerSecond} lamports/s</div>
+        <div class="meta"><a href="${v.videoUrl}" target="_blank">Open Video</a></div>
+        <br>
+        <button onclick="act(${v.id}, 'approve')">Approve</button>
+        <button onclick="act(${v.id}, 'reject')">Reject</button>
+      </div>`;
   });
 }
+
 window.onload = load;
 </script>
-</head>
-<body>
-<h1>Pending Videos</h1>
-<input id="k" type="password" placeholder="Admin Key"><button onclick="saveKey()">Save</button>
-<div id="list"></div>
+
 </body>
-</html>
-  `);
+</html>`);
 });
 
 // ------------------------------
 const port = Number(process.env.PORT || 4020);
 app.listen(port, () => console.log(`Flow402x backend on :${port}`));
+
