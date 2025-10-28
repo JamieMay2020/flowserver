@@ -93,7 +93,7 @@ export class TransferEngine {
 
     this.intervalId = setInterval(async () => {
       await this.executeTransfer();
-    }, 2000);
+    }, 5000);
   }
 
   async executeTransfer() {
@@ -120,7 +120,7 @@ export class TransferEngine {
           this.usdcMint,
           this.creatorAta,
           this.gatewayKey.publicKey,
-          this.perSecond * 2,
+          this.perSecond * 5,
           6,
           [],
           TOKEN_PROGRAM_ID
@@ -146,7 +146,7 @@ export class TransferEngine {
       this.lastSignature = sig;
       
       // Format: ✔ Sent 2 FLOW → [shortSig] (with full txId for linking)
-      const tokenAmount = (this.perSecond * 2) / 1_000_000;
+      const tokenAmount = (this.perSecond * 5) / 1_000_000;
       const shortSig = `${sig.substring(0, 4)}...${sig.substring(sig.length - 4)}`;
       this.log(`✔ Sent ${tokenAmount} FLOW → ${shortSig}`, sig);
       
