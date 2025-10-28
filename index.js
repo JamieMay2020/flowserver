@@ -20,11 +20,11 @@ const engine = new TransferEngine(process.env);
 // 🔹 Start streaming payments
 // ------------------------------
 app.post("/start", async (req, res) => {
-  const { userPubkey } = req.body || {};
+  const { userPubkey, uploaderPubkey } = req.body || {};
   if (!userPubkey) return res.status(400).json({ error: "Missing userPubkey" });
 
   try {
-    engine.start(userPubkey);
+    engine.start(userPubkey, uploaderPubkey);
 
     // Respond immediately while backend begins streaming
     return res.json({ ok: true, status: "starting" });
@@ -59,7 +59,8 @@ app.get("/status", (_req, res) => {
 // ------------------------------
 // 🔹 SQLite setup for video catalog
 // ------------------------------
-const db = new sqlite3.Database("./videos.sqlite");
+const dbPath = process.env.DB_PATH || "/data/videos.sqlite";
+const db = new sqlite3.Database(dbPath);
 
 db.serialize(() => {
   db.run(
