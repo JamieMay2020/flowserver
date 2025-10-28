@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { TransferEngine } from "./solana/transferLoop.js";
 import sqlite3 from "sqlite3";
 import nacl from "tweetnacl";
+import { PublicKey } from "@solana/web3.js";
 
 dotenv.config();
 
@@ -240,7 +241,7 @@ function verifySignature({ adminPublicKey, message, signature }) {
   try {
     const msgBytes = new TextEncoder().encode(message);
     const sigBytes = Uint8Array.from(Buffer.from(signature, "base64"));
-    const pubkeyBytes = Uint8Array.from(Buffer.from(adminPublicKey, "base64"));
+    const pubkeyBytes = new PublicKey(adminPublicKey).toBytes();
     return nacl.sign.detached.verify(msgBytes, sigBytes, pubkeyBytes);
   } catch {
     return false;
@@ -249,8 +250,6 @@ function verifySignature({ adminPublicKey, message, signature }) {
 
 function getCreatorWalletBytes() {
   try {
-    // CREATOR_WALLET is base58; convert to bytes via web3.js PublicKey
-    const { PublicKey } = require("@solana/web3.js");
     return new PublicKey(process.env.CREATOR_WALLET).toBytes();
   } catch {
     return null;
@@ -271,8 +270,7 @@ app.post("/wallet-approve", async (req, res) => {
 
   // Ensure pubkey matches CREATOR_WALLET
   try {
-    const { PublicKey } = require("@solana/web3.js");
-    const provided = new PublicKey(Buffer.from(adminPublicKey, "base64"));
+    const provided = new PublicKey(adminPublicKey);
     const expectedPk = new PublicKey(process.env.CREATOR_WALLET);
     if (!provided.equals(expectedPk)) return res.status(401).json({ error: "Unauthorized wallet" });
   } catch {
@@ -299,8 +297,7 @@ app.post("/wallet-reject", async (req, res) => {
   if (!ok) return res.status(401).json({ error: "Bad signature" });
 
   try {
-    const { PublicKey } = require("@solana/web3.js");
-    const provided = new PublicKey(Buffer.from(adminPublicKey, "base64"));
+    const provided = new PublicKey(adminPublicKey);
     const expectedPk = new PublicKey(process.env.CREATOR_WALLET);
     if (!provided.equals(expectedPk)) return res.status(401).json({ error: "Unauthorized wallet" });
   } catch {
@@ -348,10 +345,27 @@ app.get("/admin", (_req, res) => {
       var k = document.getElementById('k');
       if (k) k.value = key;
       const resp = await fetch('/videos/pending', { headers: { 'x-admin-key': key } });
+      if (!resp.ok) {
+        const list = document.getElementById('list');
+        list.innerHTML = '';
+        const msg = document.createElement('div');
+        msg.className = 'card';
+        msg.textContent = 'Error ' + resp.status + ' — ' + (resp.status === 401 ? 'Unauthorized: enter correct admin key and Save' : 'Failed to load pending');
+        list.appendChild(msg);
+        return;
+      }
       const data = await resp.json();
       const list = document.getElementById('list');
       list.innerHTML = '';
-      (data || []).forEach(function(v) {
+      const arr = Array.isArray(data) ? data : [];
+      if (arr.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'card';
+        empty.textContent = 'No pending videos yet.';
+        list.appendChild(empty);
+        return;
+      }
+      arr.forEach(function(v) {
         const card = document.createElement('div');
         card.className = 'card';
 
@@ -412,7 +426,16 @@ app.get("/admin", (_req, res) => {
 
     window.addEventListener('DOMContentLoaded', function(){
       var btn = document.getElementById('saveBtn');
-      if (btn) btn.addEventListener('click', function(){ setKey(document.getElementById('k').value); load(); });
+      if (btn) btn.addEventListener('click', function(){
+        setKey(document.getElementById('k').value);
+        const list = document.getElementById('list');
+        list.innerHTML = '';
+        const msg = document.createElement('div');
+        msg.className = 'card';
+        msg.textContent = 'Admin key saved. Loading pending videos…';
+        list.appendChild(msg);
+        load();
+      });
       load();
     });
   </script>
