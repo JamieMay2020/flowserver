@@ -238,41 +238,85 @@ app.get("/admin", (_req, res) => {
   <script>
     function getKey() { return localStorage.getItem('adminKey') || ''; }
     function setKey(v) { localStorage.setItem('adminKey', v); }
+
+    async function act(id, action) {
+      const key = getKey();
+      await fetch('/videos/' + id + '/' + action, { method: 'POST', headers: { 'x-admin-key': key } });
+      await load();
+    }
+
     async function load() {
       const key = getKey();
-      document.getElementById('k').value = key;
+      var k = document.getElementById('k');
+      if (k) k.value = key;
       const resp = await fetch('/videos/pending', { headers: { 'x-admin-key': key } });
       const data = await resp.json();
       const list = document.getElementById('list');
       list.innerHTML = '';
-      (data||[]).forEach(v => {
-        const div = document.createElement('div');
-        div.className = 'card';
-        div.innerHTML = 
-          '<div class="row">' +
-            '<img class="thumb" src="' + v.thumbnailUrl + '" />' +
-            '<div>' +
-              '<div><strong>' + v.title + '</strong></div>' +
-              '<div class="meta">Owner: ' + v.ownerPublicKey + '</div>' +
-              '<div class="meta">Rate: ' + v.lamportsPerSecond + ' lamports/s</div>' +
-              '<div class="meta">URL: <a href="' + v.videoUrl + '" target="_blank">' + v.videoUrl + '</a></div>' +
-              '<div class="meta">Created: ' + new Date(v.createdAt).toLocaleString() + '</div>' +
-              '<div style="margin-top:8px;">' +
-                '<button onclick="act(' + v.id + ', \'approve\')">Approve</button>' +
-                '<button onclick="act(' + v.id + ', \'reject\')">Reject</button>' +
-              '</div>' +
-            '</div>' +
-          '</div>';
-        list.appendChild(div);
+      (data || []).forEach(function(v) {
+        const card = document.createElement('div');
+        card.className = 'card';
+
+        const row = document.createElement('div');
+        row.className = 'row';
+        card.appendChild(row);
+
+        const img = document.createElement('img');
+        img.className = 'thumb';
+        img.src = v.thumbnailUrl;
+        row.appendChild(img);
+
+        const right = document.createElement('div');
+        row.appendChild(right);
+
+        const title = document.createElement('div');
+        title.innerHTML = '<strong>' + v.title + '</strong>';
+        right.appendChild(title);
+
+        const owner = document.createElement('div');
+        owner.className = 'meta';
+        owner.textContent = 'Owner: ' + v.ownerPublicKey;
+        right.appendChild(owner);
+
+        const rate = document.createElement('div');
+        rate.className = 'meta';
+        rate.textContent = v.lamportsPerSecond + ' lamports/s';
+        right.appendChild(rate);
+
+        const link = document.createElement('div');
+        link.className = 'meta';
+        link.innerHTML = '<a href="' + v.videoUrl + '" target="_blank">Open Video</a>';
+        right.appendChild(link);
+
+        const created = document.createElement('div');
+        created.className = 'meta';
+        try { created.textContent = 'Created: ' + new Date(v.createdAt).toLocaleString(); } catch(e) {}
+        right.appendChild(created);
+
+        const actions = document.createElement('div');
+        actions.style.marginTop = '8px';
+        right.appendChild(actions);
+
+        const approveBtn = document.createElement('button');
+        approveBtn.textContent = 'Approve';
+        approveBtn.addEventListener('click', function(){ act(v.id, 'approve'); });
+        actions.appendChild(approveBtn);
+
+        const rejectBtn = document.createElement('button');
+        rejectBtn.textContent = 'Reject';
+        rejectBtn.style.marginLeft = '8px';
+        rejectBtn.addEventListener('click', function(){ act(v.id, 'reject'); });
+        actions.appendChild(rejectBtn);
+
+        list.appendChild(card);
       });
     }
-    async function act(id, action) {
-      const key = getKey();
-      await fetch('/videos/' + id + '/' + action, { method: 'POST', headers: { 'x-admin-key': key } });
+
+    window.addEventListener('DOMContentLoaded', function(){
+      var btn = document.getElementById('saveBtn');
+      if (btn) btn.addEventListener('click', function(){ setKey(document.getElementById('k').value); load(); });
       load();
-    }
-    window.saveKey = function() { setKey(document.getElementById('k').value); load(); };
-    window.addEventListener('DOMContentLoaded', load);
+    });
   </script>
 </head>
 <body>
@@ -280,7 +324,7 @@ app.get("/admin", (_req, res) => {
   <div>
     <label>Admin Key:</label>
     <input id="k" type="password" placeholder="enter admin key" />
-    <button onclick="window.saveKey()">Save</button>
+    <button id="saveBtn">Save</button>
   </div>
   <div id="list"></div>
 </body>
