@@ -271,7 +271,7 @@ app.get("/admin", (_req, res) => {
       await fetch('/videos/' + id + '/' + action, { method: 'POST', headers: { 'x-admin-key': key } });
       load();
     }
-    function saveKey() { setKey(document.getElementById('k').value); load(); }
+    window.saveKey = function() { setKey(document.getElementById('k').value); load(); };
     window.addEventListener('DOMContentLoaded', load);
   </script>
 </head>
@@ -280,7 +280,7 @@ app.get("/admin", (_req, res) => {
   <div>
     <label>Admin Key:</label>
     <input id="k" type="password" placeholder="enter admin key" />
-    <button onclick="saveKey()">Save</button>
+    <button onclick="window.saveKey()">Save</button>
   </div>
   <div id="list"></div>
 </body>
