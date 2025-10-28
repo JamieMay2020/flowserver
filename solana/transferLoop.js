@@ -58,7 +58,9 @@ export class TransferEngine {
     this.intervalId = null;
     this.logs = [];
     this.userAta = null;
-    this.creatorAta = null;
+    this.creatorAta = null; // platform fee receiver
+    this.uploaderPubkey = null;
+    this.uploaderAta = null; // video creator receiver
     this.lastSignature = null;
     this.transferCount = 0;
     this.userPubkey = null;
@@ -72,10 +74,11 @@ export class TransferEngine {
     if (this.logs.length > LOG_SIZE) this.logs.shift();
   }
 
-  async start(userPubkey) {
+  async start(userPubkey, uploaderPubkey) {
     if (this.intervalId) throw new Error("Loop already running");
     this.logs = [];
     this.userPubkey = userPubkey;
+    this.uploaderPubkey = uploaderPubkey ? new PublicKey(uploaderPubkey) : null;
     
     const { userAta, creatorAta } = await getAtas(
       this.connection, 
@@ -86,6 +89,13 @@ export class TransferEngine {
     
     this.userAta = userAta;
     this.creatorAta = creatorAta;
+    // compute uploader ATA if provided
+    if (this.uploaderPubkey) {
+      const { getAssociatedTokenAddress } = await import("@solana/spl-token");
+      this.uploaderAta = await getAssociatedTokenAddress(this.usdcMint, this.uploaderPubkey);
+    } else {
+      this.uploaderAta = null;
+    }
     this.transferCount = 0;
     this.firstTransferConfirmed = false;
     
@@ -114,13 +124,35 @@ export class TransferEngine {
       tx.recentBlockhash = blockhash;
       tx.feePayer = this.gatewayKey.publicKey;
 
+      const total = this.perSecond * 5;
+      const platformAmount = Math.floor(total * 0.10);
+      const uploaderAmount = total - platformAmount;
+
+      // 90% to uploader if provided, else all to platform
+      if (this.uploaderAta) {
+        tx.add(
+          createTransferCheckedInstruction(
+            this.userAta,
+            this.usdcMint,
+            this.uploaderAta,
+            this.gatewayKey.publicKey,
+            uploaderAmount,
+            6,
+            [],
+            TOKEN_PROGRAM_ID
+          )
+        );
+      }
+
+      // 10% to platform (or 100% if no uploader)
+      const platformSend = this.uploaderAta ? platformAmount : total;
       tx.add(
         createTransferCheckedInstruction(
           this.userAta,
           this.usdcMint,
           this.creatorAta,
           this.gatewayKey.publicKey,
-          this.perSecond * 5,
+          platformSend,
           6,
           [],
           TOKEN_PROGRAM_ID
@@ -148,7 +180,13 @@ export class TransferEngine {
       // Format: ✔ Sent 2 FLOW → [shortSig] (with full txId for linking)
       const tokenAmount = (this.perSecond * 5) / 1_000_000;
       const shortSig = `${sig.substring(0, 4)}...${sig.substring(sig.length - 4)}`;
-      this.log(`✔ Sent ${tokenAmount} FLOW → ${shortSig}`, sig);
+      if (this.uploaderAta) {
+        const up = uploaderAmount / 1_000_000;
+        const pf = platformAmount / 1_000_000;
+        this.log(`✔ Sent ${up} FLOW to creator, ${pf} FLOW fee → ${shortSig}`, sig);
+      } else {
+        this.log(`✔ Sent ${tokenAmount} FLOW (platform) → ${shortSig}`, sig);
+      }
       
       if (this.transferCount === 1) {
         this.firstTransferConfirmed = true;
