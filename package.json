@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node index.js"
-  },
+    "start": "node index.js"
+  }
   "dependencies": {
     "@solana/spl-token": "^0.4.7",
     "@solana/web3.js": "^1.95.0",
@@ -13,3 +13,4 @@
     "express": "^4.19.2"
   }
 }
+
