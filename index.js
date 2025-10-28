@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { TransferEngine } from "./solana/transferLoop.js";
 import sqlite3 from "sqlite3";
+import nacl from "tweetnacl";
 
 dotenv.config();
 
@@ -210,6 +211,103 @@ app.post("/videos/:id/reject", (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: "Invalid id" });
   db.run(`UPDATE videos SET status = 'rejected' WHERE id = ?`, [id], function(err) {
+    if (err) return res.status(500).json({ error: "DB error" });
+    if (this.changes === 0) return res.status(404).json({ error: "Not found" });
+    return res.json({ ok: true });
+  });
+});
+
+// ------------------------------
+// 🔹 Wallet-signed moderation (admin = CREATOR_WALLET)
+// ------------------------------
+const nonces = new Map();
+
+app.get("/admin/nonce", (_req, res) => {
+  const nonce = Math.random().toString(36).slice(2) + Date.now();
+  const expiresAt = Date.now() + 5 * 60 * 1000;
+  nonces.set(nonce, expiresAt);
+  res.json({ nonce, expiresAt });
+});
+
+function verifyAndConsumeNonce(nonce) {
+  const exp = nonces.get(nonce);
+  if (!exp) return false;
+  nonces.delete(nonce);
+  return Date.now() <= exp;
+}
+
+function verifySignature({ adminPublicKey, message, signature }) {
+  try {
+    const msgBytes = new TextEncoder().encode(message);
+    const sigBytes = Uint8Array.from(Buffer.from(signature, "base64"));
+    const pubkeyBytes = Uint8Array.from(Buffer.from(adminPublicKey, "base64"));
+    return nacl.sign.detached.verify(msgBytes, sigBytes, pubkeyBytes);
+  } catch {
+    return false;
+  }
+}
+
+function getCreatorWalletBytes() {
+  try {
+    // CREATOR_WALLET is base58; convert to bytes via web3.js PublicKey
+    const { PublicKey } = require("@solana/web3.js");
+    return new PublicKey(process.env.CREATOR_WALLET).toBytes();
+  } catch {
+    return null;
+  }
+}
+
+app.post("/wallet-approve", async (req, res) => {
+  const { videoId, adminPublicKey, signature, nonce } = req.body || {};
+  if (!videoId || !adminPublicKey || !signature || !nonce) return res.status(400).json({ error: "Missing fields" });
+  if (!verifyAndConsumeNonce(nonce)) return res.status(400).json({ error: "Invalid nonce" });
+
+  const expected = getCreatorWalletBytes();
+  if (!expected) return res.status(500).json({ error: "CREATOR_WALLET invalid" });
+
+  const msg = `approve:${videoId}:${nonce}`;
+  const ok = verifySignature({ adminPublicKey, message: msg, signature });
+  if (!ok) return res.status(401).json({ error: "Bad signature" });
+
+  // Ensure pubkey matches CREATOR_WALLET
+  try {
+    const { PublicKey } = require("@solana/web3.js");
+    const provided = new PublicKey(Buffer.from(adminPublicKey, "base64"));
+    const expectedPk = new PublicKey(process.env.CREATOR_WALLET);
+    if (!provided.equals(expectedPk)) return res.status(401).json({ error: "Unauthorized wallet" });
+  } catch {
+    return res.status(400).json({ error: "Invalid adminPublicKey" });
+  }
+
+  db.run(`UPDATE videos SET status = 'approved' WHERE id = ?`, [videoId], function(err) {
+    if (err) return res.status(500).json({ error: "DB error" });
+    if (this.changes === 0) return res.status(404).json({ error: "Not found" });
+    return res.json({ ok: true });
+  });
+});
+
+app.post("/wallet-reject", async (req, res) => {
+  const { videoId, adminPublicKey, signature, nonce } = req.body || {};
+  if (!videoId || !adminPublicKey || !signature || !nonce) return res.status(400).json({ error: "Missing fields" });
+  if (!verifyAndConsumeNonce(nonce)) return res.status(400).json({ error: "Invalid nonce" });
+
+  const expected = getCreatorWalletBytes();
+  if (!expected) return res.status(500).json({ error: "CREATOR_WALLET invalid" });
+
+  const msg = `reject:${videoId}:${nonce}`;
+  const ok = verifySignature({ adminPublicKey, message: msg, signature });
+  if (!ok) return res.status(401).json({ error: "Bad signature" });
+
+  try {
+    const { PublicKey } = require("@solana/web3.js");
+    const provided = new PublicKey(Buffer.from(adminPublicKey, "base64"));
+    const expectedPk = new PublicKey(process.env.CREATOR_WALLET);
+    if (!provided.equals(expectedPk)) return res.status(401).json({ error: "Unauthorized wallet" });
+  } catch {
+    return res.status(400).json({ error: "Invalid adminPublicKey" });
+  }
+
+  db.run(`UPDATE videos SET status = 'rejected' WHERE id = ?`, [videoId], function(err) {
     if (err) return res.status(500).json({ error: "DB error" });
     if (this.changes === 0) return res.status(404).json({ error: "Not found" });
     return res.json({ ok: true });
