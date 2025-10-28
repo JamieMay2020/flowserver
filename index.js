@@ -236,44 +236,56 @@ app.get("/admin", (_req, res) => {
     .meta { font-size: 12px; color: #555; }
   </style>
   <script>
-    function getKey() { return localStorage.getItem('adminKey') || ''; }
-    function setKey(v) { localStorage.setItem('adminKey', v); }
-    async function load() {
-      const key = getKey();
-      document.getElementById('k').value = key;
-      const resp = await fetch('/videos/pending', { headers: { 'x-admin-key': key } });
-      const data = await resp.json();
-      const list = document.getElementById('list');
-      list.innerHTML = '';
-      (data||[]).forEach(v => {
-        const div = document.createElement('div');
-        div.className = 'card';
-        div.innerHTML = 
-          '<div class="row">' +
-            '<img class="thumb" src="' + v.thumbnailUrl + '" />' +
-            '<div>' +
-              '<div><strong>' + v.title + '</strong></div>' +
-              '<div class="meta">Owner: ' + v.ownerPublicKey + '</div>' +
-              '<div class="meta">Rate: ' + v.lamportsPerSecond + ' lamports/s</div>' +
-              '<div class="meta">URL: <a href="' + v.videoUrl + '" target="_blank">' + v.videoUrl + '</a></div>' +
-              '<div class="meta">Created: ' + new Date(v.createdAt).toLocaleString() + '</div>' +
-              '<div style="margin-top:8px;">' +
-                '<button onclick="act(' + v.id + ', \'approve\')">Approve</button>' +
-                '<button onclick="act(' + v.id + ', \'reject\')">Reject</button>' +
-              '</div>' +
-            '</div>' +
-          '</div>';
-        list.appendChild(div);
-      });
-    }
-    async function act(id, action) {
-      const key = getKey();
-      await fetch('/videos/' + id + '/' + action, { method: 'POST', headers: { 'x-admin-key': key } });
-      load();
-    }
-    window.saveKey = function() { setKey(document.getElementById('k').value); load(); };
-    window.addEventListener('DOMContentLoaded', load);
-  </script>
+  function getKey() { return localStorage.getItem('adminKey') || ''; }
+  function setKey(v) { localStorage.setItem('adminKey', v); }
+
+  window.act = async function (id, action) {
+    const key = getKey();
+    await fetch('/videos/' + id + '/' + action, {
+      method: 'POST',
+      headers: { 'x-admin-key': key }
+    });
+    load();
+  };
+
+  window.saveKey = function () {
+    setKey(document.getElementById('k').value);
+    load();
+  };
+
+  async function load() {
+    const key = getKey();
+    document.getElementById('k').value = key;
+    const resp = await fetch('/videos/pending', { headers: { 'x-admin-key': key } });
+    const data = await resp.json();
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+
+    (data || []).forEach(v => {
+      const div = document.createElement('div');
+      div.className = 'card';
+      div.innerHTML = `
+        <div class="row">
+          <img class="thumb" src="${v.thumbnailUrl}" />
+          <div>
+            <div><strong>${v.title}</strong></div>
+            <div class="meta">Owner: ${v.ownerPublicKey}</div>
+            <div class="meta">Rate: ${v.lamportsPerSecond} lamports/s</div>
+            <div class="meta">URL: <a href="${v.videoUrl}" target="_blank">${v.videoUrl}</a></div>
+            <div class="meta">Created: ${new Date(v.createdAt).toLocaleString()}</div>
+            <div style="margin-top:8px;">
+              <button onclick="act(${v.id}, 'approve')">Approve</button>
+              <button onclick="act(${v.id}, 'reject')">Reject</button>
+            </div>
+          </div>
+        </div>`;
+      list.appendChild(div);
+    });
+  }
+
+  window.addEventListener('DOMContentLoaded', load);
+</script>
+
 </head>
 <body>
   <h1>Pending Videos</h1>
@@ -289,3 +301,4 @@ app.get("/admin", (_req, res) => {
 
 const port = Number(process.env.PORT || 4020);
 app.listen(port, () => console.log(`Flow402x backend on :${port}`));
+
