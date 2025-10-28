@@ -172,7 +172,7 @@ app.post("/videos", async (req, res) => {
   if (!Number.isFinite(rate) || rate <= 0) return res.status(400).json({ error: "Invalid lamportsPerSecond" });
 
   const type = contentType || 'video';
-  if (!['video', 'live'].includes(type)) return res.status(400).json({ error: "Invalid contentType" });
+  if (!['video', 'live', 'movie'].includes(type)) return res.status(400).json({ error: "Invalid contentType" });
 
   try {
     // Limits
