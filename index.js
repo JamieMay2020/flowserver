@@ -12,8 +12,6 @@ app.use(express.json());
 
 const engine = new TransferEngine(process.env);
 
-// (CAPTCHA removed)
-
 // ------------------------------
 // 🔹 Start streaming payments
 // ------------------------------
@@ -23,8 +21,6 @@ app.post("/start", async (req, res) => {
 
   try {
     engine.start(userPubkey);
-
-    // Respond immediately while backend begins streaming
     return res.json({ ok: true, status: "starting" });
   } catch (e) {
     return res.status(409).json({ error: e.message });
@@ -35,27 +31,19 @@ app.post("/start", async (req, res) => {
 // 🔹 Stop streaming
 // ------------------------------
 app.post("/stop", (_req, res) => {
-  engine.firstTransferConfirmed = false; // reset flag
+  engine.firstTransferConfirmed = false;
   engine.stop();
   return res.json({ ok: true });
 });
 
-// ------------------------------a
-// 🔹 Return logs (frontend polling)
 // ------------------------------
-app.get("/logs", (_req, res) => {
-  return res.json(engine.getLogs());
-});
+// 🔹 Logs & Status
+// ------------------------------
+app.get("/logs", (_req, res) => res.json(engine.getLogs()));
+app.get("/status", (_req, res) => res.json(engine.getStatus()));
 
 // ------------------------------
-// 🔹 NEW: Return status
-// ------------------------------
-app.get("/status", (_req, res) => {
-  return res.json(engine.getStatus());
-});
-
-// ------------------------------
-// 🔹 SQLite setup for video catalog
+// 🔹 SQLite Setup
 // ------------------------------
 const db = new sqlite3.Database("./videos.sqlite");
 
@@ -79,10 +67,11 @@ db.serialize(() => {
 });
 
 // ------------------------------
-// 🔹 Helpers: URL allowlist & admin gate & rate limits
+// Helpers
 // ------------------------------
 const ALLOWED_VIDEO_HOSTS = [
   "youtube.com",
+  "youtu.be",
   "vimeo.com",
   "ipfs.io",
   "cloudflarestream.com"
@@ -108,12 +97,9 @@ function requireAdmin(req, res) {
 async function getPendingCount(ownerPublicKey) {
   return new Promise((resolve, reject) => {
     db.get(
-      `SELECT COUNT(*) as c FROM videos WHERE ownerPublicKey = ? AND status = 'pending'`,
+      `SELECT COUNT(*) AS c FROM videos WHERE ownerPublicKey = ? AND status = 'pending'`,
       [ownerPublicKey],
-      (err, row) => {
-        if (err) return reject(err);
-        resolve(row?.c || 0);
-      }
+      (err, row) => (err ? reject(err) : resolve(row?.c || 0))
     );
   });
 }
@@ -123,16 +109,13 @@ async function getLastCreatedAt(ownerPublicKey) {
     db.get(
       `SELECT createdAt FROM videos WHERE ownerPublicKey = ? ORDER BY createdAt DESC LIMIT 1`,
       [ownerPublicKey],
-      (err, row) => {
-        if (err) return reject(err);
-        resolve(row?.createdAt || 0);
-      }
+      (err, row) => (err ? reject(err) : resolve(row?.createdAt || 0))
     );
   });
 }
 
 // ------------------------------
-// 🔹 Video submission (requires CAPTCHA)
+// 🔹 Submit Video
 // ------------------------------
 app.post("/videos", async (req, res) => {
   const { ownerPublicKey, title, description, videoUrl, thumbnailUrl, lamportsPerSecond } = req.body || {};
@@ -141,26 +124,24 @@ app.post("/videos", async (req, res) => {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
-  // URL allowlist
   if (!isAllowedHost(videoUrl)) return res.status(400).json({ error: "Video URL host not allowed" });
-  if (!/^https?:\/\//i.test(thumbnailUrl)) return res.status(400).json({ error: "Invalid thumbnail URL" });
 
   const rate = Number(lamportsPerSecond);
   if (!Number.isFinite(rate) || rate <= 0) return res.status(400).json({ error: "Invalid lamportsPerSecond" });
 
   try {
-    // Limits
     const pending = await getPendingCount(ownerPublicKey);
     if (pending >= 3) return res.status(429).json({ error: "Too many pending submissions" });
+
     const last = await getLastCreatedAt(ownerPublicKey);
     if (Date.now() - last < 2 * 60 * 1000) return res.status(429).json({ error: "Please wait before submitting again" });
 
     const now = Date.now();
     db.run(
       `INSERT INTO videos (ownerPublicKey, title, description, videoUrl, thumbnailUrl, lamportsPerSecond, createdAt, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
-      [ownerPublicKey, String(title).slice(0, 200), String(description || '').slice(0, 2000), videoUrl, thumbnailUrl, rate, now],
-      function(err) {
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      [ownerPublicKey, title.slice(0, 200), (description || '').slice(0, 2000), videoUrl, thumbnailUrl, rate, now],
+      function (err) {
         if (err) return res.status(500).json({ error: "DB error" });
         return res.json({ ok: true, id: this.lastID });
       }
@@ -171,134 +152,105 @@ app.post("/videos", async (req, res) => {
 });
 
 // ------------------------------
-// 🔹 List approved videos (public)
+// 🔹 Get Videos
 // ------------------------------
 app.get("/videos", (_req, res) => {
-  db.all(`SELECT * FROM videos WHERE status = 'approved' ORDER BY createdAt DESC`, [], (err, rows) => {
-    if (err) return res.status(500).json({ error: "DB error" });
-    return res.json(rows || []);
-  });
+  db.all(`SELECT * FROM videos WHERE status = 'approved' ORDER BY createdAt DESC`, [], (err, rows) =>
+    err ? res.status(500).json({ error: "DB error" }) : res.json(rows || [])
+  );
 });
 
 // ------------------------------
-// 🔹 List pending videos (admin)
+// 🔹 Admin Pending List
 // ------------------------------
 app.get("/videos/pending", (req, res) => {
-  if (requireAdmin(req, res) !== null) return; // early exit on unauthorized
-  db.all(`SELECT * FROM videos WHERE status = 'pending' ORDER BY createdAt ASC`, [], (err, rows) => {
-    if (err) return res.status(500).json({ error: "DB error" });
-    return res.json(rows || []);
-  });
+  if (requireAdmin(req, res) !== null) return;
+  db.all(`SELECT * FROM videos WHERE status = 'pending' ORDER BY createdAt ASC`, [], (err, rows) =>
+    err ? res.status(500).json({ error: "DB error" }) : res.json(rows || [])
+  );
 });
 
 // ------------------------------
-// 🔹 Approve / Reject (admin)
+// 🔹 Approve / Reject
 // ------------------------------
 app.post("/videos/:id/approve", (req, res) => {
   if (requireAdmin(req, res) !== null) return;
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: "Invalid id" });
-  db.run(`UPDATE videos SET status = 'approved' WHERE id = ?`, [id], function(err) {
+  db.run(`UPDATE videos SET status = 'approved' WHERE id = ?`, [req.params.id], function (err) {
     if (err) return res.status(500).json({ error: "DB error" });
-    if (this.changes === 0) return res.status(404).json({ error: "Not found" });
     return res.json({ ok: true });
   });
 });
 
 app.post("/videos/:id/reject", (req, res) => {
   if (requireAdmin(req, res) !== null) return;
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: "Invalid id" });
-  db.run(`UPDATE videos SET status = 'rejected' WHERE id = ?`, [id], function(err) {
+  db.run(`UPDATE videos SET status = 'rejected' WHERE id = ?`, [req.params.id], function (err) {
     if (err) return res.status(500).json({ error: "DB error" });
-    if (this.changes === 0) return res.status(404).json({ error: "Not found" });
     return res.json({ ok: true });
   });
 });
 
 // ------------------------------
-// 🔹 Basic Admin HTML Page
+// 🔹 Admin Page (String.raw prevents template-break)
 // ------------------------------
 app.get("/admin", (_req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  return res.send(`<!doctype html>
+  res.send(String.raw`
+<!doctype html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Admin - Pending Videos</title>
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; }
-    input, button { padding: 8px; margin: 4px 0; }
-    .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin: 10px 0; }
-    .row { display: flex; gap: 12px; align-items: center; }
-    img.thumb { width: 120px; height: 68px; object-fit: cover; border-radius: 6px; border:1px solid #ccc; }
-    .meta { font-size: 12px; color: #555; }
-  </style>
-  <script>
-  function getKey() { return localStorage.getItem('adminKey') || ''; }
-  function setKey(v) { localStorage.setItem('adminKey', v); }
+<meta charset="utf-8" />
+<title>Admin</title>
+<style>
+body { font-family: sans-serif; max-width: 800px; margin: 24px auto; }
+.card { border:1px solid #ccc; padding:12px; border-radius:6px; margin-bottom:12px; }
+img.thumb { width:140px; height:80px; object-fit:cover; border-radius:4px; }
+</style>
+<script>
+function getKey(){ return localStorage.getItem("adminKey") || ""; }
+function setKey(k){ localStorage.setItem("adminKey", k); }
 
-  window.act = async function (id, action) {
-    const key = getKey();
-    await fetch('/videos/' + id + '/' + action, {
-      method: 'POST',
-      headers: { 'x-admin-key': key }
-    });
-    load();
-  };
+async function act(id, action){
+  const key = getKey();
+  await fetch("/videos/" + id + "/" + action, { method:"POST", headers: { "x-admin-key": key } });
+  load();
+}
 
-  window.saveKey = function () {
-    setKey(document.getElementById('k').value);
-    load();
-  };
+function saveKey(){
+  setKey(document.getElementById("k").value);
+  load();
+}
 
-  async function load() {
-    const key = getKey();
-    document.getElementById('k').value = key;
-    const resp = await fetch('/videos/pending', { headers: { 'x-admin-key': key } });
-    const data = await resp.json();
-    const list = document.getElementById('list');
-    list.innerHTML = '';
-
-    (data || []).forEach(v => {
-      const div = document.createElement('div');
-      div.className = 'card';
-      div.innerHTML = `
-        <div class="row">
-          <img class="thumb" src="${v.thumbnailUrl}" />
-          <div>
-            <div><strong>${v.title}</strong></div>
-            <div class="meta">Owner: ${v.ownerPublicKey}</div>
-            <div class="meta">Rate: ${v.lamportsPerSecond} lamports/s</div>
-            <div class="meta">URL: <a href="${v.videoUrl}" target="_blank">${v.videoUrl}</a></div>
-            <div class="meta">Created: ${new Date(v.createdAt).toLocaleString()}</div>
-            <div style="margin-top:8px;">
-              <button onclick="act(${v.id}, 'approve')">Approve</button>
-              <button onclick="act(${v.id}, 'reject')">Reject</button>
-            </div>
-          </div>
-        </div>`;
-      list.appendChild(div);
-    });
-  }
-
-  window.addEventListener('DOMContentLoaded', load);
+async function load(){
+  const key = getKey();
+  document.getElementById("k").value = key;
+  const resp = await fetch("/videos/pending", { headers:{ "x-admin-key": key }});
+  const data = await resp.json();
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  (data||[]).forEach(v=>{
+    list.innerHTML += `
+    <div class="card">
+      <img class="thumb" src="${v.thumbnailUrl}">
+      <strong>${v.title}</strong><br>
+      <small>${v.ownerPublicKey}</small><br>
+      <a href="${v.videoUrl}" target="_blank">View Video</a><br><br>
+      <button onclick="act(${v.id}, 'approve')">Approve</button>
+      <button onclick="act(${v.id}, 'reject')">Reject</button>
+    </div>`;
+  });
+}
+window.onload = load;
 </script>
-
 </head>
 <body>
-  <h1>Pending Videos</h1>
-  <div>
-    <label>Admin Key:</label>
-    <input id="k" type="password" placeholder="enter admin key" />
-    <button onclick="window.saveKey()">Save</button>
-  </div>
-  <div id="list"></div>
+<h1>Pending Videos</h1>
+<input id="k" type="password" placeholder="Admin Key"><button onclick="saveKey()">Save</button>
+<div id="list"></div>
 </body>
-</html>`);
+</html>
+  `);
 });
 
+// ------------------------------
 const port = Number(process.env.PORT || 4020);
 app.listen(port, () => console.log(`Flow402x backend on :${port}`));
-
