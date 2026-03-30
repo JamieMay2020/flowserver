@@ -37,22 +37,24 @@ class BlockhashCache {
 }
 
 export class TransferEngine {
-  constructor(env) {
+  constructor(env, settings = {}) {
     const rpcUrl = env.RPC_URL || clusterApiUrl("mainnet-beta");
     this.connection = new Connection(rpcUrl, "confirmed");
     console.log(`RPC: ${rpcUrl.replace(/api-key=.*/, "api-key=***")}`);
 
     this.blockhashCache = new BlockhashCache(this.connection);
     this.gatewayKey = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(env.GATEWAY_SECRET_KEY)));
-    this.agentWallet = env.AGENT_WALLET ? new PublicKey(env.AGENT_WALLET) : null;
     this.perSecond = Number(env.LAMPORTS_PER_SECOND || "1000");
+
+    const walletStr = settings.agentWallet || env.AGENT_WALLET;
+    this.agentWallet = walletStr ? new PublicKey(walletStr) : null;
 
     this.intervalId = null;
     this.logs = [];
     this.transferCount = 0;
     this.firstTransferConfirmed = false;
 
-    this.mint = getTokenMint();
+    this.mint = getTokenMint(settings.tokenMint);
     this.decimals = getTokenDecimals();
 
     this.userAta = null;
@@ -61,6 +63,17 @@ export class TransferEngine {
     this.creatorWallet = null;
     this.userPubkey = null;
     this.lastSignature = null;
+  }
+
+  updateConfig({ tokenMint, agentWallet }) {
+    if (tokenMint !== undefined) {
+      this.mint = getTokenMint(tokenMint || undefined);
+      this.decimals = getTokenDecimals();
+    }
+    if (agentWallet !== undefined) {
+      this.agentWallet = agentWallet ? new PublicKey(agentWallet) : null;
+    }
+    this.log(`⚙ Config updated — mint: ${this.mint.toString()}, agent: ${this.agentWallet?.toString() || "none"}`);
   }
 
   log(line, txId = null) {
